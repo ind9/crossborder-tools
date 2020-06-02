@@ -8,7 +8,7 @@ ADD web /apps/web/
 
 ADD target/cbtools-1.0-SNAPSHOT-jar-with-dependencies.jar /apps/lib/
 
-CMD java \
+CMD java -Xms1024m -Xmx1024m \
      -Dapp.db.template=/apps/conf/template.sql3 \
      -Dapp.tmp.dir=/apps/tmp/wrk/ \
      -Dapp.static=/apps/web/static \

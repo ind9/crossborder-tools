@@ -16,9 +16,11 @@ public class ExcelTranslator {
         FormulaEvaluator formulaError = null;
         try {
             Workbook workbook = WorkbookFactory.create(is);
+            log.info("Workbook created");
             formulaError = workbook.getCreationHelper()
                                    .createFormulaEvaluator();
             int maxSheets = workbook.getNumberOfSheets();
+            log.info("Workbook has {} sheets",maxSheets);
             for(int si = 0; si < maxSheets; si++) {
                 Sheet sheet = workbook.getSheetAt(si);
                 long st = System.currentTimeMillis();
@@ -28,7 +30,7 @@ public class ExcelTranslator {
             }
 
         }catch(IOException ioe) {
-            System.err.println(ioe.getMessage());
+            log.error("",ioe);
         }
     }
 
@@ -126,6 +128,8 @@ public class ExcelTranslator {
         int maxRows = sheet.getLastRowNum();
         String sheetName = sheet.getSheetName().toLowerCase().trim();
 
+        log.info("Extracting {}",sheetName);
+
         for(int rowId = 1; rowId <= maxRows; rowId++) {
             Row row = sheet.getRow(rowId);
             if("codes".equalsIgnoreCase(sheetName))
@@ -147,7 +151,7 @@ public class ExcelTranslator {
                     inserter.insert(rate);
                 }
             }else {
-                System.out.println("No match");
+                log.info("No match");
             }
         }
     }

@@ -41,11 +41,27 @@ public class UploadHandler {
                 }
                 try(InputStream efis = request.raw().getPart("uploaded_file").getInputStream())
                 {
+                    log.info("Upload stream obtained");
+                    /*
                     ExcelTranslator translator = new ExcelTranslator();
                     translator.translate(efis,sqldb);
                     ServiceResponse<ValidationResponse>  vr =  sqldb.validate(year);
                     validatonResponse.getErrors().addAll(vr.getErrors());
-                    validatonResponse.setData(vr.getData());
+                    validatonResponse.setData(vr.getData());*/
+
+
+                    long st = System.currentTimeMillis();
+                    long nd = System.currentTimeMillis();
+                    StreamXslTranslator translator = new StreamXslTranslator();
+                    translator.process(efis, sqldb);
+                    nd = System.currentTimeMillis();
+                    log.info("Finished db-inserts in {}ms", nd - st);
+                    st = System.currentTimeMillis();
+                    ServiceResponse<ValidationResponse> vr = sqldb.validate(year);
+                    validatonResponse.getErrors().addAll(vr.getErrors());
+                    validatonResponse.setData((ValidationResponse)vr.getData());
+                    nd = System.currentTimeMillis();
+                    log.info("Finished validation in {}ms", nd - st);
 
                 }catch(Exception error) {
 

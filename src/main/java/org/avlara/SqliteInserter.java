@@ -1,322 +1,352 @@
 package org.avlara;
 
-import lombok.extern.slf4j.Slf4j;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Scanner;
+import java.util.stream.Collectors;
+
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Slf4j
 public class SqliteInserter implements SqlInserter {
 
     private String db = "jdbc:sqlite:";
-    private String dbname = "",
-            queriesFilePath = System.getProperty("app.queries"),
-            queries = queriesFilePath.endsWith("/")? queriesFilePath + "queries.sql" : queriesFilePath +"/queries.sql",
-            summary = queriesFilePath.endsWith("/")? queriesFilePath + "summary.sql" : queriesFilePath +"/summary.sql";
+    private String dbname = "";
+    private String queriesFilePath = System.getProperty("app.queries");
+    private String queries;
+    private String summary;
+    private int codebatch;
+    private int ratebatch;
+    private Connection gconn;
+    private PreparedStatement codePs;
+    private PreparedStatement ratePs;
+    private List<String> validationQueries;
+    private List<String> summaryQueries;
 
-    private int codebatch = 0, ratebatch = 0;
-
-    private Connection gconn = null;
-    private PreparedStatement codePs, ratePs;
-
-    private List<String> validationQueries = new ArrayList<>(),
-                         summaryQueries = new ArrayList<>();
-
-    public SqliteInserter(String templateDb, String workingDir) throws IOException
-    {
-        String randomDB = Math.random()+".sql";
-        db += workingDir;
-        if(!db.endsWith("/"))
-        {
-            db +="/";
+    public SqliteInserter(String templateDb, String workingDir) throws IOException {
+        this.queries = this.queriesFilePath.endsWith("/") ? this.queriesFilePath + "queries.sql" : this.queriesFilePath + "/queries.sql";
+        this.summary = this.queriesFilePath.endsWith("/") ? this.queriesFilePath + "summary.sql" : this.queriesFilePath + "/summary.sql";
+        this.codebatch = 0;
+        this.ratebatch = 0;
+        this.gconn = null;
+        this.validationQueries = new ArrayList();
+        this.summaryQueries = new ArrayList();
+        String randomDB = Math.random() + ".sql";
+        this.db = this.db + workingDir;
+        if (!this.db.endsWith("/")) {
+            this.db = this.db + "/";
         }
-        dbname = workingDir + randomDB;
-        db += randomDB;
 
-        log.info("Cloning {} to {} :",templateDb, dbname);
-
-        Files.copy(Paths.get(templateDb),Paths.get(dbname));
-
+        this.dbname = workingDir + randomDB;
+        this.db = this.db + randomDB;
+        log.info("Cloning {} to {} :", templateDb, this.dbname);
+        Files.copy(Paths.get(templateDb), Paths.get(this.dbname));
     }
 
     private SqliteInserter() {
-
+        this.queries = this.queriesFilePath.endsWith("/") ? this.queriesFilePath + "queries.sql" : this.queriesFilePath + "/queries.sql";
+        this.summary = this.queriesFilePath.endsWith("/") ? this.queriesFilePath + "summary.sql" : this.queriesFilePath + "/summary.sql";
+        this.codebatch = 0;
+        this.ratebatch = 0;
+        this.gconn = null;
+        this.validationQueries = new ArrayList();
+        this.summaryQueries = new ArrayList();
     }
 
     public boolean testdb() {
-        log.info("Trying to connect using [{}]",db);
-        try(Connection conn = DriverManager.getConnection(db)) {
+        log.info("Trying to connect using [{}]", this.db);
 
-            Statement ps = conn.createStatement();
-            ResultSet rs = ps.executeQuery("select * from codes");
+        try {
+            Connection conn = DriverManager.getConnection(this.db);
 
-            while(rs.next())
-            {
-                log.info(rs.getString("description"));
+            try {
+                Statement ps = conn.createStatement();
+                ResultSet rs = ps.executeQuery("select * from codes");
+
+                while(rs.next()) {
+                    log.info(rs.getString("description"));
+                }
+
+                rs.close();
+                ps.close();
+                log.info("Test connection success");
+            } catch (Throwable var14) {
+                if (conn != null) {
+                    try {
+                        conn.close();
+                    } catch (Throwable var8) {
+                        var14.addSuppressed(var8);
+                    }
+                }
+
+                throw var14;
             }
-            rs.close();
-            ps.close();
 
-            log.info("Test connection success");
-
-        }catch(SQLException sqle){
-            sqle.printStackTrace();
-            log.error(db,sqle);
+            if (conn != null) {
+                conn.close();
+            }
+        } catch (SQLException var15) {
+            log.error(this.db, var15);
             return false;
         }
 
-        File query = new File(queries);
-        try(Scanner queryScanner = new Scanner(query)) {
-            queryScanner.useDelimiter(";");
+        File query = new File(this.queries);
 
-            while (queryScanner.hasNext()) {
-                validationQueries.add(queryScanner.next().trim());
+        try {
+            Scanner queryScanner = new Scanner(query);
+
+            try {
+                queryScanner.useDelimiter(";");
+
+                while(queryScanner.hasNext()) {
+                    this.validationQueries.add(queryScanner.next().trim());
+                }
+            } catch (Throwable var12) {
+                try {
+                    queryScanner.close();
+                } catch (Throwable var7) {
+                    var12.addSuppressed(var7);
+                }
+
+                throw var12;
             }
-        }catch(FileNotFoundException fne) {
-            log.error("Cant load query file",fne);
+
+            queryScanner.close();
+        } catch (FileNotFoundException var13) {
+            log.error("Cant load query file", var13);
             return false;
         }
 
-        File summaryFile = new File(summary);
-        try(Scanner queryScanner = new Scanner(summaryFile)) {
-            queryScanner.useDelimiter(";");
+        File summaryFile = new File(this.summary);
 
-            while (queryScanner.hasNext()) {
-                summaryQueries.add(queryScanner.next().trim());
+        try {
+            Scanner queryScanner = new Scanner(summaryFile);
+
+            try {
+                queryScanner.useDelimiter(";");
+
+                while(queryScanner.hasNext()) {
+                    this.summaryQueries.add(queryScanner.next().trim());
+                }
+            } catch (Throwable var10) {
+                try {
+                    queryScanner.close();
+                } catch (Throwable var6) {
+                    var10.addSuppressed(var6);
+                }
+
+                throw var10;
             }
-        }catch(FileNotFoundException fne) {
-            log.error("Cant load query file",fne);
+
+            queryScanner.close();
+        } catch (FileNotFoundException var11) {
+            log.error("Cant load query file", var11);
             return false;
         }
 
         try {
-            gconn = DriverManager.getConnection(db);
-            gconn.setAutoCommit(false);
-
-            String scodeps = "INSERT INTO codes (rid, description, fkCodeId,"+
-            "sequenceNumber, parsedCode,  isSystemDefined,"+
-            "isTaxable,  hasChildren, isZeroPadded,"+
-            "isDecision, zeroPaddedCount,rateRef)"+
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
-
-            codePs = gconn.prepareStatement(scodeps);
-
-            String srateps = "INSERT INTO rates(" +
-            "rid,citationTexts,manufactureSourceType,"+
-            "shippingDestinationType,fKCodeId,shippingSourceType,"+
-            "formula,formulaType,taxSection,wco)"+
-            "VALUES(?,?,?,?,?,?,?,?,?,?)";
-
-            ratePs = gconn.prepareStatement(srateps);
-
-
-
-
-        }catch(SQLException sqle){
-            log.error(db,sqle);
+            this.gconn = DriverManager.getConnection(this.db);
+            this.gconn.setAutoCommit(false);
+            String scodeps = "INSERT INTO codes (rid, description, fkCodeId,sequenceNumber, parsedCode,  isSystemDefined,isTaxable,  hasChildren, isZeroPadded,isDecision, zeroPaddedCount,rateRef)VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
+            this.codePs = this.gconn.prepareStatement(scodeps);
+            String srateps = "INSERT INTO rates(rid,citationTexts,manufactureSourceType,shippingDestinationType,fKCodeId,shippingSourceType,formula,formulaType,taxSection,wco)VALUES(?,?,?,?,?,?,?,?,?,?)";
+            this.ratePs = this.gconn.prepareStatement(srateps);
+            return true;
+        } catch (SQLException var9) {
+            log.error(this.db, var9);
             return false;
         }
-        return true;
     }
 
     private void rateBulk(Rate rate) {
-        //log.info(rate.ts());
         try {
-
-            ratePs.setInt(1, rate.getRow());
-            ratePs.setString(2,rate.getCitationTexts());
-            ratePs.setString(3,rate.getManufactureSourceType());
-
-            ratePs.setString(4,rate.getShippingDestinationType());
-            ratePs.setString(5,rate.getFKCodeId());
-            ratePs.setString(6,rate.getShippingSourceType());
-
-            ratePs.setString(7,rate.getFormula());
-            ratePs.setString(8,rate.getFormulaType());
-            ratePs.setString(9,rate.getTaxSection());
-
+            this.ratePs.setInt(1, rate.getRow());
+            this.ratePs.setString(2, rate.getCitationTexts());
+            this.ratePs.setString(3, rate.getManufactureSourceType());
+            this.ratePs.setString(4, rate.getShippingDestinationType());
+            this.ratePs.setString(5, rate.getFKCodeId());
+            this.ratePs.setString(6, rate.getShippingSourceType());
+            this.ratePs.setString(7, rate.getFormula());
+            this.ratePs.setString(8, rate.getFormulaType());
+            this.ratePs.setString(9, rate.getTaxSection());
             String fk = rate.getFKCodeId();
-            String wco = fk.substring(fk.lastIndexOf('_')+1,fk.length());
-
-            wco = wco.substring(0,6);
-
-            ratePs.setString(10,wco);
-
-            ratePs.executeUpdate();
-            /*
-            ratePs.addBatch();
-            ratebatch++;
-
-            if(ratebatch > 1000)
-            {
-                ratebatch = 0;
-                ratePs.executeUpdate();
+            String wco = fk.substring(fk.lastIndexOf(95) + 1, fk.length());
+            wco = wco.substring(0, 6);
+            this.ratePs.setString(10, wco);
+            this.ratePs.executeUpdate();
+            ++this.ratebatch;
+            if (this.ratebatch > 1000) {
+                this.ratebatch = 0;
+                this.gconn.commit();
             }
-            */
-        }catch(SQLException sqle){
-            log.error("Error inserting batch",sqle);
+        } catch (SQLException var4) {
+            log.error("Error inserting batch", var4);
         }
+
     }
 
-
-
-    public ServiceResponse<ValidationResponse>  validate(String year)
-    {
-        ServiceResponse<ValidationResponse> validation = new ServiceResponse<ValidationResponse>();
-
+    public ServiceResponse<ValidationResponse> validate(String year) {
+        ServiceResponse<ValidationResponse> validation = new ServiceResponse();
         validation.setData(new ValidationResponse());
 
         try {
-
-            ratePs.executeUpdate();
-            codePs.executeUpdate();
-
-            gconn.commit();
-
-            ratePs.close();
-            codePs.close();
-
-            Statement st = gconn.createStatement();
+            this.ratePs.executeUpdate();
+            this.codePs.executeUpdate();
+            this.gconn.commit();
+            this.ratePs.close();
+            this.codePs.close();
+            Statement st = this.gconn.createStatement();
             boolean atleastOneFailure = false;
-            for(String query : validationQueries)
-            {
-                if(query.contains("#year#"))
-                {
-                    query = query.replaceAll("#year#",year);
-                    ResultSet rs = st.executeQuery(query);
-                    while (rs.next()) {
-                        Validation failure = new Validation();
-                        failure.setRow(Integer.parseInt(rs.getString("rid")));
-                        failure.setMessage(rs.getString("msg"));
+            Iterator var5 = this.validationQueries.iterator();
 
-                        validation.getData().getErrors().add(failure);
-                        atleastOneFailure = true;
+            while(true) {
+                String query;
+                ResultSet rs;
+                Validation summary;
+                while(var5.hasNext()) {
+                    query = (String)var5.next();
+                    if (query.trim().isEmpty()) {
+                        log.info("Skipping empty validation query");
+                    } else {
+                        try {
+                            if (query.contains("#year#")) {
+                                query = query.replaceAll("#year#", year);
+
+                                for(rs = st.executeQuery(query); rs.next(); atleastOneFailure = true) {
+                                    summary = new Validation();
+                                    summary.setRow(Integer.parseInt(rs.getString("rid")));
+                                    summary.setMessage(rs.getString("msg"));
+                                    ((ValidationResponse)validation.getData()).getErrors().add(summary);
+                                }
+                            } else {
+                                for(rs = st.executeQuery(query); rs.next(); atleastOneFailure = true) {
+                                    summary = new Validation();
+                                    summary.setRow(rs.getInt("rid") + 1);
+                                    summary.setMessage(rs.getString("msg"));
+                                    ((ValidationResponse)validation.getData()).getErrors().add(summary);
+                                }
+                            }
+                        } catch (SQLException var10) {
+                            log.error("Error Running query {}", query, var10);
+                        }
+                    }
+                }
+
+                var5 = this.summaryQueries.iterator();
+
+                while(true) {
+                    while(var5.hasNext()) {
+                        query = (String)var5.next();
+                        if (query.trim().isEmpty()) {
+                            log.info("Skipping empty summary query");
+                        } else {
+                            try {
+                                if (query.contains("#year#")) {
+                                    query = query.replaceAll("#year#", year);
+                                }
+
+                                log.debug("Running summary query [{}]", query);
+
+                                for(rs = st.executeQuery(query); rs.next(); atleastOneFailure = true) {
+                                    summary = new Validation();
+                                    summary.setRow(rs.getInt("cn"));
+                                    summary.setMessage(rs.getString("msg"));
+                                    ((ValidationResponse)validation.getData()).getSummary().add(summary);
+                                }
+                            } catch (SQLException var9) {
+                                log.error("Error Running summary {}", query, var9);
+                            }
+                        }
                     }
 
-                }else {
-                    //log.info("Executing [{}]",query);
-                    ResultSet rs = st.executeQuery(query);
-                    while (rs.next()) {
-                        Validation failure = new Validation();
-                        failure.setRow((rs.getInt("rid") + 1));
-                        failure.setMessage(rs.getString("msg"));
-
-                        validation.getData().getErrors().add(failure);
-                        atleastOneFailure = true;
+                    if (atleastOneFailure) {
+                        validation.getErrors().add("One or more Validations failed");
                     }
-                }
-            }
-            // summary
-            for(String query : summaryQueries) {
-                if(query.contains("#year#")) {
-                    query = query.replaceAll("#year#", year);
-                }
-                ResultSet rs = st.executeQuery(query);
-                while (rs.next()) {
-                    Validation summary = new Validation();
-                    summary.setRow((rs.getInt("cn")));
-                    summary.setMessage(rs.getString("msg"));
 
-                    validation.getData().getSummary().add(summary);
-                    atleastOneFailure = true;
+                    st.close();
+                    return validation;
                 }
             }
-            if(atleastOneFailure){
-                validation.getErrors().add("One or more Validations failed");
-            }
-            st.close();
-
-        }catch(SQLException sqle) {
-            log.error("Error commiting inserts",sqle);
+        } catch (SQLException var11) {
+            log.error("Error commiting inserts", var11);
             validation.getErrors().add("One or more Validations failed");
-        }
-
-        return  validation;
-    }
-
-    @Override
-    public void insert(Model code)
-    {
-        if(code instanceof  Code) {
-            codeBulk((Code)code);
-        }else if(code instanceof Rate ) {
-            rateBulk((Rate)code);
+            return validation;
         }
     }
 
+    public void insert(Model code) {
+        if (code.isHasError()) {
+            log.info((String)code.getErrorMessages().stream().collect(Collectors.joining(",")));
+        } else if (code instanceof Code) {
+            this.codeBulk((Code)code);
+        } else if (code instanceof Rate) {
+            this.rateBulk((Rate)code);
+        }
 
+    }
 
     private void codeBulk(Code code) {
-
-        //log.info(code.ts());
-        try
-        {
-            String rateRef = code.getFkCodeId().substring(0,code.getFkCodeId().lastIndexOf('_')+1) +
-                             code.getParsedCode();
-
-            codePs.setInt(1,code.getRow());
-            codePs.setString(2,code.getDescription());
-            codePs.setString(3,code.getFkCodeId());
-            codePs.setString(4,code.getSequenceNumber());
-            codePs.setString(5,code.getParsedCode());
-            codePs.setBoolean(6,code.isSystemDefined());
-            codePs.setBoolean(7,code.isTaxable());
-            codePs.setBoolean(8,code.isHasChildren());
-            codePs.setBoolean(9,code.isZeroPadded());
-            codePs.setBoolean(10,code.isDecision());
-            codePs.setInt(11,code.getZeroPaddedCount());
-            codePs.setString(12,rateRef);
-
-            codePs.executeUpdate();
-            /*
-            codePs.addBatch();
-            codebatch++;
-            if(codebatch > 1000)
-            {
-                codePs.executeUpdate();
-                codebatch = 0;
+        try {
+            String rateRef = code.getFkCodeId().substring(0, code.getFkCodeId().lastIndexOf(95) + 1) + code.getParsedCode();
+            this.codePs.setInt(1, code.getRow());
+            this.codePs.setString(2, code.getDescription());
+            this.codePs.setString(3, code.getFkCodeId());
+            this.codePs.setString(4, code.getSequenceNumber());
+            this.codePs.setString(5, code.getParsedCode());
+            this.codePs.setBoolean(6, code.isSystemDefined());
+            this.codePs.setBoolean(7, code.isTaxable());
+            this.codePs.setBoolean(8, code.isHasChildren());
+            this.codePs.setBoolean(9, code.isZeroPadded());
+            this.codePs.setBoolean(10, code.isDecision());
+            this.codePs.setInt(11, code.getZeroPaddedCount());
+            this.codePs.setString(12, rateRef);
+            this.codePs.executeUpdate();
+            ++this.codebatch;
+            if (this.codebatch > 1000) {
+                this.gconn.commit();
+                this.codebatch = 0;
             }
-            */
-        }catch(SQLException sqle) {
-            log.error("Error llogging code",sqle);
+        } catch (SQLException var3) {
+            log.error("Error llogging code", var3);
         }
+
     }
 
-
-    public void cleanup()
-    {
-        if(gconn != null) {
+    public void cleanup() {
+        if (this.gconn != null) {
             try {
-                gconn.close();
-            } catch (SQLException sqle) {
-                log.error("Error closing", sqle);
+                this.gconn.close();
+            } catch (SQLException var3) {
+                log.error("Error closing", var3);
             }
         }
-        try
-        {
-            Files.delete(Paths.get(dbname));
-        }catch(Exception e){
-            log.error(dbname,e);
+
+        try {
+            Files.delete(Paths.get(this.dbname));
+        } catch (Exception var2) {
+            log.error(this.dbname, var2);
         }
+
     }
 
     public static void main(String[] args) throws Exception {
-
         String fk = "hs_kq32_01012100";
-
-        String wco = fk.substring(fk.lastIndexOf('_')+1,fk.length());
-
-        wco = wco.substring(0,wco.length()-2);
-
+        String wco = fk.substring(fk.lastIndexOf(95) + 1, fk.length());
+        wco = wco.substring(0, wco.length() - 2);
         System.out.println(wco);
-
     }
 }

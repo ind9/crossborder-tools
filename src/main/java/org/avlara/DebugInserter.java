@@ -6,9 +6,9 @@ public class DebugInserter implements SqlInserter {
     public void insert(Model code) {
 
         if(code instanceof  Code) {
-            System.out.println("Code : "+code.toString() );
+            //System.out.println("Code : "+code.toString() );
         }else if(code instanceof Rate ) {
-            System.out.println("Rate :"+code.toString());
+            //System.out.println("Rate :"+code.toString());
         }
     }
 }

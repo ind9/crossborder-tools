@@ -2,8 +2,8 @@
 
 version=${GO_PIPELINE_LABEL:-0.1.0}
 image="crossborder_tools"
-full_name="docker-registry.midgard.avalara.io/${image}:${version}"
-latest="docker-registry.midgard.avalara.io/${image}:latest"
+full_name="docker-registry.midgard.avalara.io/force/${image}:${version}"
+latest="docker-registry.midgard.avalara.io/force/${image}:latest"
 
 rm conf/template.sql3
 sqlite3 conf/template.sql3 < src/main/resources/schema.sql
